@@ -1,56 +1,61 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Link
+} from "react-router-dom";
 import {
   BarChart,
   Bar,
   XAxis,
   YAxis,
   Tooltip,
-  ResponsiveContainer,
+  ResponsiveContainer
 } from "recharts";
-import { apiGet, apiPost, apiDelete } from "./api";
-import "./App.css";
 
-const FOCUS_SECONDS = 25 * 60;
-const BREAK_SECONDS = 5 * 60;
+const API_URL = "http://127.0.0.1:5000";
 
 function TimerPage() {
+  const FOCUS_SECONDS = 25 * 60;
+  const BREAK_SECONDS = 5 * 60;
+
+  const savedTimer = JSON.parse(localStorage.getItem("timerState")) || null;
+
+  const [secondsLeft, setSecondsLeft] = useState(
+    savedTimer?.secondsLeft || FOCUS_SECONDS
+  );
+  const [isRunning, setIsRunning] = useState(false);
+  const [mode, setMode] = useState(savedTimer?.mode || "focus");
   const [subjects, setSubjects] = useState([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState("");
   const [newSubject, setNewSubject] = useState("");
-
-  const saved = JSON.parse(localStorage.getItem("timerState") || "{}");
-
-  const [mode, setMode] = useState(saved.mode || "focus");
-  const [secondsLeft, setSecondsLeft] = useState(
-    saved.secondsLeft || FOCUS_SECONDS
-  );
-  const [isRunning, setIsRunning] = useState(saved.isRunning || false);
+  const [message, setMessage] = useState("");
 
   const totalSeconds = mode === "focus" ? FOCUS_SECONDS : BREAK_SECONDS;
   const progress = ((totalSeconds - secondsLeft) / totalSeconds) * 100;
 
   useEffect(() => {
-    loadSubjects();
+    fetchSubjects();
   }, []);
 
   useEffect(() => {
     localStorage.setItem(
       "timerState",
       JSON.stringify({
-        mode,
         secondsLeft,
-        isRunning,
+        mode
       })
     );
-  }, [mode, secondsLeft, isRunning]);
+  }, [secondsLeft, mode]);
 
   useEffect(() => {
     if (!isRunning) return;
 
-    const interval = setInterval(() => {
+    const timer = setInterval(() => {
       setSecondsLeft((prev) => {
         if (prev <= 1) {
+          clearInterval(timer);
           handleTimerComplete();
           return 0;
         }
@@ -59,90 +64,119 @@ function TimerPage() {
       });
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => clearInterval(timer);
   }, [isRunning, mode, selectedSubjectId]);
 
-  async function loadSubjects() {
-    const data = await apiGet("/subjects");
+  const fetchSubjects = async () => {
+    const response = await fetch(`${API_URL}/subjects`);
+    const data = await response.json();
     setSubjects(data);
 
     if (data.length > 0 && !selectedSubjectId) {
       setSelectedSubjectId(data[0].id);
     }
-  }
+  };
 
-  async function addSubject() {
-    if (!newSubject.trim()) return;
-
-    await apiPost("/subjects", {
-      name: newSubject,
-    });
-
-    setNewSubject("");
-    loadSubjects();
-  }
-
-  async function removeSubject(id) {
-    await apiDelete(`/subjects/${id}`);
-    loadSubjects();
-  }
-
-  async function handleTimerComplete() {
+  const handleTimerComplete = async () => {
     setIsRunning(false);
 
     if (mode === "focus") {
-      await apiPost("/sessions", {
-        subject_id: Number(selectedSubjectId),
-        duration: 25,
+      await fetch(`${API_URL}/sessions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          subject_id: selectedSubjectId,
+          duration: 25
+        })
       });
 
-      alert("Focus session completed. Break time starts now.");
+      setMessage("Focus session completed! Break timer started.");
       setMode("break");
       setSecondsLeft(BREAK_SECONDS);
       setIsRunning(true);
     } else {
-      alert("Break finished.");
+      setMessage("Break finished! Ready for another focus session.");
       setMode("focus");
       setSecondsLeft(FOCUS_SECONDS);
     }
-  }
+  };
 
-  function resetTimer() {
+  const startTimer = () => {
+    if (mode === "focus" && !selectedSubjectId) {
+      alert("Please select a subject first.");
+      return;
+    }
+
+    setMessage("");
+    setIsRunning(true);
+  };
+
+  const pauseTimer = () => {
     setIsRunning(false);
-    setSecondsLeft(mode === "focus" ? FOCUS_SECONDS : BREAK_SECONDS);
-  }
+  };
 
-  function formatTime(seconds) {
-    const min = String(Math.floor(seconds / 60)).padStart(2, "0");
-    const sec = String(seconds % 60).padStart(2, "0");
+  const resetTimer = () => {
+    setIsRunning(false);
+    setMode("focus");
+    setSecondsLeft(FOCUS_SECONDS);
+    setMessage("");
+  };
 
-    return `${min}:${sec}`;
-  }
+  const addSubject = async () => {
+    if (!newSubject.trim()) return;
+
+    await fetch(`${API_URL}/subjects`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        name: newSubject
+      })
+    });
+
+    setNewSubject("");
+    fetchSubjects();
+  };
+
+  const deleteSubject = async (id) => {
+    await fetch(`${API_URL}/subjects/${id}`, {
+      method: "DELETE"
+    });
+
+    fetchSubjects();
+  };
+
+  const formatTime = () => {
+    const minutes = Math.floor(secondsLeft / 60);
+    const seconds = secondsLeft % 60;
+
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  };
 
   return (
-    <main className="page">
+    <div className="page">
       <h1>Pomodoro Timer</h1>
 
-      <section className="card timer-card">
-        <p className="mode-label">{mode === "focus" ? "Focus" : "Break"}</p>
+      <div className="timer-card">
+        <p className="mode">{mode === "focus" ? "Focus Time" : "Break Time"}</p>
 
-        <div className="progress-ring">
+        <div className="progress-wrapper">
           <div
-            className="progress-fill"
-            style={{
-              background: `conic-gradient(#4f46e5 ${progress}%, #e5e7eb ${progress}%)`,
-            }}
-          >
-            <div className="timer-inner">{formatTime(secondsLeft)}</div>
-          </div>
+            className="progress-bar"
+            style={{ width: `${progress}%` }}
+          />
         </div>
 
-        <label>
-          Subject
+        <div className="timer-text">{formatTime()}</div>
+
+        {mode === "focus" && (
           <select
             value={selectedSubjectId}
-            disabled={isRunning || mode === "break"}
-            onChange={(e) => setSelectedSubjectId(e.target.value)}
+            onChange={(event) => setSelectedSubjectId(event.target.value)}
+            disabled={isRunning}
           >
             {subjects.map((subject) => (
               <option key={subject.id} value={subject.id}>
@@ -150,54 +184,50 @@ function TimerPage() {
               </option>
             ))}
           </select>
-        </label>
+        )}
 
-        <div className="button-row">
-          <button
-            onClick={() => setIsRunning(true)}
-            disabled={isRunning || !selectedSubjectId}
-          >
-            Start
-          </button>
+        <div className="button-group">
+          {!isRunning ? (
+            <button onClick={startTimer}>Start</button>
+          ) : (
+            <button onClick={pauseTimer}>Pause</button>
+          )}
 
-          <button onClick={() => setIsRunning(false)} disabled={!isRunning}>
-            Pause
-          </button>
-
-          <button onClick={() => setIsRunning(true)} disabled={isRunning}>
-            Resume
-          </button>
-
-          <button className="secondary" onClick={resetTimer}>
+          <button onClick={resetTimer} className="secondary">
             Reset
           </button>
         </div>
-      </section>
 
-      <section className="card">
-        <h2>Manage Subjects</h2>
+        {message && <p className="message">{message}</p>}
+      </div>
 
-        <div className="input-row">
+      <div className="subject-card">
+        <h2>Subjects</h2>
+
+        <div className="subject-input">
           <input
             value={newSubject}
+            onChange={(event) => setNewSubject(event.target.value)}
             placeholder="New subject"
-            onChange={(e) => setNewSubject(e.target.value)}
           />
           <button onClick={addSubject}>Add</button>
         </div>
 
-        <ul className="subject-list">
+        <ul>
           {subjects.map((subject) => (
             <li key={subject.id}>
-              <span>{subject.name}</span>
-              <button className="danger" onClick={() => removeSubject(subject.id)}>
+              {subject.name}
+              <button
+                className="delete"
+                onClick={() => deleteSubject(subject.id)}
+              >
                 Delete
               </button>
             </li>
           ))}
         </ul>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
@@ -208,39 +238,48 @@ function HistoryPage() {
   const [range, setRange] = useState("all");
 
   useEffect(() => {
-    loadSubjects();
+    fetchSubjects();
   }, []);
 
   useEffect(() => {
-    loadSessions();
+    fetchSessions();
   }, [subjectId, range]);
 
-  async function loadSubjects() {
-    const data = await apiGet("/subjects");
+  const fetchSubjects = async () => {
+    const response = await fetch(`${API_URL}/subjects`);
+    const data = await response.json();
     setSubjects(data);
-  }
+  };
 
-  async function loadSessions() {
+  const fetchSessions = async () => {
     const params = new URLSearchParams();
 
     if (subjectId) params.append("subject_id", subjectId);
     params.append("range", range);
 
-    const data = await apiGet(`/sessions?${params.toString()}`);
-    setSessions(data);
-  }
+    const response = await fetch(`${API_URL}/sessions?${params.toString()}`);
+    const data = await response.json();
 
-  async function deleteSession(id) {
-    await apiDelete(`/sessions/${id}`);
-    loadSessions();
-  }
+    setSessions(data);
+  };
+
+  const deleteSession = async (id) => {
+    await fetch(`${API_URL}/sessions/${id}`, {
+      method: "DELETE"
+    });
+
+    fetchSessions();
+  };
 
   return (
-    <main className="page">
+    <div className="page">
       <h1>History</h1>
 
-      <section className="card filters">
-        <select value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+      <div className="filters">
+        <select
+          value={subjectId}
+          onChange={(event) => setSubjectId(event.target.value)}
+        >
           <option value="">All Subjects</option>
           {subjects.map((subject) => (
             <option key={subject.id} value={subject.id}>
@@ -249,48 +288,37 @@ function HistoryPage() {
           ))}
         </select>
 
-        <select value={range} onChange={(e) => setRange(e.target.value)}>
+        <select
+          value={range}
+          onChange={(event) => setRange(event.target.value)}
+        >
+          <option value="all">All</option>
           <option value="week">This Week</option>
           <option value="month">This Month</option>
-          <option value="all">All</option>
         </select>
-      </section>
+      </div>
 
-      <section className="card">
-        {sessions.length === 0 ? (
-          <p>No sessions found.</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th>Duration</th>
-                <th>Date</th>
-                <th></th>
-              </tr>
-            </thead>
+      <div className="list">
+        {sessions.map((session) => (
+          <div className="session-item" key={session.id}>
+            <div>
+              <strong>{session.subject_name}</strong>
+              <p>{session.duration} minutes</p>
+              <small>{new Date(session.created_at).toLocaleString()}</small>
+            </div>
 
-            <tbody>
-              {sessions.map((session) => (
-                <tr key={session.id}>
-                  <td>{session.subject_name}</td>
-                  <td>{session.duration} min</td>
-                  <td>{new Date(session.created_at).toLocaleString()}</td>
-                  <td>
-                    <button
-                      className="danger"
-                      onClick={() => deleteSession(session.id)}
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-    </main>
+            <button
+              className="delete"
+              onClick={() => deleteSession(session.id)}
+            >
+              Delete
+            </button>
+          </div>
+        ))}
+
+        {sessions.length === 0 && <p>No sessions found.</p>}
+      </div>
+    </div>
   );
 }
 
@@ -298,78 +326,81 @@ function DashboardPage() {
   const [stats, setStats] = useState(null);
 
   useEffect(() => {
-    loadStats();
+    fetchStats();
   }, []);
 
-  async function loadStats() {
-    const data = await apiGet("/stats");
+  const fetchStats = async () => {
+    const response = await fetch(`${API_URL}/stats`);
+    const data = await response.json();
     setStats(data);
+  };
+
+  if (!stats) {
+    return <div className="page">Loading...</div>;
   }
 
-  if (!stats) return <main className="page">Loading...</main>;
-
-  const weekdayData = Object.entries(stats.by_weekday).map(([name, minutes]) => ({
-    name,
-    minutes,
+  const weekdayData = Object.entries(stats.by_weekday).map(([day, minutes]) => ({
+    day,
+    minutes
   }));
 
   return (
-    <main className="page">
+    <div className="page">
       <h1>Dashboard</h1>
 
-      <section className="stats-grid">
-        <div className="card stat">
-          <span>Current Streak</span>
+      <div className="stats-grid">
+        <div className="stat-card">
+          <p>Current Streak</p>
           <strong>{stats.streak} days</strong>
         </div>
 
-        <div className="card stat">
-          <span>Total Focus Time</span>
+        <div className="stat-card">
+          <p>Total Focus Time</p>
           <strong>{stats.total_hours} hours</strong>
         </div>
 
-        <div className="card stat">
-          <span>This Week</span>
-          <strong>{stats.sessions_this_week} sessions</strong>
+        <div className="stat-card">
+          <p>Sessions This Week</p>
+          <strong>{stats.sessions_this_week}</strong>
         </div>
-      </section>
+      </div>
 
-      <section className="card chart-card">
+      <div className="chart-card">
         <h2>Focus Time by Subject</h2>
 
-        <ResponsiveContainer width="100%" height={280}>
+        <ResponsiveContainer width="100%" height={300}>
           <BarChart data={stats.by_subject}>
             <XAxis dataKey="name" />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="minutes" fill="#4f46e5" />
+            <Bar dataKey="minutes" />
           </BarChart>
         </ResponsiveContainer>
-      </section>
+      </div>
 
-      <section className="card chart-card">
+      <div className="chart-card">
         <h2>Weekly Pattern</h2>
 
-        <ResponsiveContainer width="100%" height={280}>
+        <ResponsiveContainer width="100%" height={300}>
           <BarChart data={weekdayData}>
-            <XAxis dataKey="name" />
+            <XAxis dataKey="day" />
             <YAxis />
             <Tooltip />
-            <Bar dataKey="minutes" fill="#10b981" />
+            <Bar dataKey="minutes" />
           </BarChart>
         </ResponsiveContainer>
-      </section>
-    </main>
+      </div>
+    </div>
   );
 }
 
 function App() {
   return (
     <BrowserRouter>
-      <nav className="nav">
-        <NavLink to="/">Timer</NavLink>
-        <NavLink to="/history">History</NavLink>
-        <NavLink to="/dashboard">Dashboard</NavLink>
+      <nav>
+        <Link to="/">Timer</Link>
+        <Link to="/history">History</Link>
+        <Link to="/dashboard">Dashboard</Link>
       </nav>
 
       <Routes>

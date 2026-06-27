@@ -1,0 +1,8 @@
+{
+  "subjects": [
+    { "id": 1, "name": "Work" },
+    { "id": 2, "name": "Reading" },
+    { "id": 3, "name": "Study" }
+  ],
+  "sessions": []
+}
