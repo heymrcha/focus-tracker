@@ -14,7 +14,7 @@ import {
   ResponsiveContainer
 } from "recharts";
 
-const API_URL = "http://127.0.0.1:5000";
+const API_URL = "https://focus-tracker-production-6622.up.railway.app/subjects";
 
 function TimerPage() {
   const FOCUS_SECONDS = 25 * 60;
